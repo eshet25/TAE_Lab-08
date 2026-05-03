@@ -1,7 +1,6 @@
 ---
 title: "Lab 08 - University of Edinburgh Art Collection"
-author: "Insert your name here"
-date: "Insert date here"
+author: Tsion
 output: github_document
 ---
 
@@ -12,16 +11,23 @@ First, let's load the necessary packages:
 ```{r load-packages, message = FALSE}
 library(tidyverse) 
 library(skimr)
+library(robotstxt)
+
+paths_allowed("https://collections.ed.ac.uk/art")
 ```
 
 Now, load the dataset. If your data isn't ready yet, you can leave `eval = FALSE` for now and update it when needed.  
 
 
-```{r load-data, message = FALSE, eval = FALSE}
+```{r load-data, message = FALSE}
 # Remove eval = FALSE or set it to TRUE once data is ready to be loaded
 uoe_art <- read_csv("data/uoe-art.csv")
 ```
 
+```{r}
+glimpse(uoe_art)
+```
+ 
 ## Exercise 10
 
 Let's start working with the **title** column by separating the title and the date:  
@@ -30,27 +36,125 @@ Let's start working with the **title** column by separating the title and the da
 uoe_art <- uoe_art %>%
   separate(title, into = c("title", "date"), sep = "\\(") %>%
   mutate(year = str_remove(date, "\\)") %>% as.numeric()) %>%
-  select(title, artist, year, ___)  # Fill in the missing variable!
+  select(title, artist, year, link)  
 ```
 
-Make sure to replace `___` with the appropriate column name.  
+When I ran this chunk, two warnings appeared. The first warning says that 26 rows were missing the second piece after separating the title at the opening parenthesis. This means those titles did not have a date in parentheses, so R filled the `date` column with `NA`.
+
+The second warning says that some values became `NA` when converting the date column to numeric. This happened because not every value in the date column was a clean year. Some titles may have extra text, unclear dates, or missing dates, so R could not turn them into numbers.
+
+In my opinion, these warnings make sense because this is scraped data from a real website, and the titles are not all formatted the same way. The code still works, but it shows that the dataset needs some cleaning before analyzing the years?
 
 
 ## Exercise 11  
 
-*Write your answer here.*  
+Now I will use `skim()` to summarize the cleaned dataset.
 
-Feel free to add code chunks as needed. Don't forget to label your code chunk.
+```{r skim art data}
+skim(uoe_art)
+```
+
+16 pieces have title mising. And 99 have year missing. This is a bit too high of a number I think for years to be missing? hmm cause the data has 220 obs?
+
+```{r checking raw titles}
+uoe_art <- read_csv("data/uoe-art.csv", show_col_types = FALSE)
+
+uoe_art %>%
+  select(title) %>%
+  print(n = 20)
+```
+
+### Let me try rerunning Exercise 10 first. 
+
+```{r separate-title-date again}
+#Trying to reload the original scraped data so the title still has the year in parentheses
+uoe_art <- read_csv("data/uoe-art.csv", show_col_types = FALSE)
+
+# Extract the first 4-digit year from the title
+# Then remove the final parentheses from the title
+uoe_art <- uoe_art %>%
+  mutate(
+    year = str_extract(title, "\\d{4}"),
+    year = as.numeric(year),
+    title = str_remove(title, "\\s*\\([^\\)]*\\)$")
+  ) %>%
+  select(title, artist, year, link)
+
+uoe_art
+```
+
+
+### Rerun Exercise 11
+
+```{r skim art data again}
+skim(uoe_art)
+```
+
+Ok, now it has 16 pieces where title is missing and 41 where the year is missing. (Much better than before?). 
 
 
 ## Exercise 12  
 
+```{r making histogram}
+ggplot(uoe_art, aes(x = year)) +
+  geom_histogram(binwidth = 10, color = "white") +
+  labs(
+    title = "Distribution of Years in the University of Edinburgh Art Collection",
+    x = "Year",
+    y = "Number of art pieces"
+  ) +
+  theme_minimal()
+```
 
-*Continue with the same structure as above.*
+I do see something a little out of the ordinary. Most of the artwork years are clustered around the mid-1900s, especially around the 1950s and 1960s. That part makes sense for an art collection connected to Edinburgh College of Art. I think?
 
-You're doing great—keep going! Follow the same format and add your response below.  
+But there are a few pieces that appear much earlier, around the 1820s–1840s, almost close to year 0? I think it might be worth checking these because it might be data that were extracted from titles in a slightly messy way. Although there is the possibility that they were real historical pieces, but jusssst in case!
 
+The warning also says that 41 rows were removed because they had non-finite values, which means those pieces had missing years. That is not too surprising because some titles had “Unknown” or did not include a clear year.
 
-## Additional Exercises  
+### Exercise 13
 
-Almost there! Keep building on your work and follow the same structure for any remaining exercises. Each exercise builds on the last, so take your time and make sure your code is working as expected.  
+```{r checking early years}
+uoe_art %>%
+  filter(year < 1900) %>%
+  arrange(year)
+```
+
+In my opinion, these early values do not look like simple coding mistakes. They seem to be real dates connected to a specific group of artworks or reproductions. However, many of these rows have missing artist information, so they still show that the scraped data is somewhat incomplete.
+
+I think I did not get an obviously incorrect year because I used `str_extract(title, "\\d{4}")` when I rerun Exercise 10, which extracts the first four-digit year from the title. This also may have avoided the error that can happen when the code tries to separate the title only at the first parenthesis.
+
+So, since the early years appear to match the artwork titles and do not look like mistakes, I did not change them. If one of the years had been incorrect, I would use `mutate()` with `if_else()` to replace the wrong year with the corrected year.
+
+### Exercise 14
+
+```{r  most-common-artists}
+uoe_art %>%
+  count(artist, sort = TRUE)
+```
+
+```{r fix artist coding}
+#I got an error saying unable to translate 'Boris Bu<c4>\u0087an 
+uoe_art <- uoe_art %>%
+ mutate(
+    artist = enc2utf8(artist),
+    artist = str_replace_all(artist, "Bu.*an", "Boris Bucan")
+  )
+
+```
+
+```{r rerun most-common-artists}
+uoe_art %>%
+  count(artist, sort = TRUE)
+```
+
+Unfrotunately, the most common artist shows as 'Unknown.' I guess we'll never get to know. THe second most common artist shows up as Ann F Ward. Not familiar with the artist, and I looked them up. Their art seems pretty good but I don't know if there is any particular reason for the university to have so many pieces from them. 
+
+### Exercise 15
+
+```{r child in title}
+uoe_art %>%
+  filter(str_detect(title, regex("child", ignore_case = TRUE)))
+```
+
+It shows 0 rows.
